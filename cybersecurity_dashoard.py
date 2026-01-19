@@ -1,8 +1,5 @@
 import nest_asyncio
 nest_asyncio.apply()
-Requirement already satisfied: nest_asyncio in /usr/local/lib/python3.12/dist-packages (1.6.0)
-import nest_asyncio
-nest_asyncio.apply()
 
 import asyncio
 print("Async loop patched successfully")
@@ -1065,4 +1062,5 @@ if __name__ == "__main__":
     print("2. Add cybersecurity_dashboard.py (this file)")
     print("3. Add requirements.txt (streamlit, pandas, plotly, aiohttp)")
     print("4. Go to share.streamlit.io")
+
     print("5. Connect GitHub repo and deploy!")
