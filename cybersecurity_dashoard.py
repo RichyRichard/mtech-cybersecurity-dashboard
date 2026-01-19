@@ -4,7 +4,6 @@ nest_asyncio.apply()
 import asyncio
 print("Async loop patched successfully")
 
-!pip install streamlit
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -1064,3 +1063,4 @@ if __name__ == "__main__":
     print("4. Go to share.streamlit.io")
 
     print("5. Connect GitHub repo and deploy!")
+
