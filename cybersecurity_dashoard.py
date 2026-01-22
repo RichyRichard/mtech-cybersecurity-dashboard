@@ -721,7 +721,6 @@ def create_dashboard():
 
     # Dashboard Header
     st.markdown('<h1 class="main-header">🛡️ Cybersecurity Threat Intelligence Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown("### *M.Tech Cybersecurity - Real-time Threat Analysis with Ethical Evaluation*")
 
     # Initialize components
     if 'cyber_data' not in st.session_state:
@@ -1070,5 +1069,6 @@ if __name__ == "__main__":
     print("4. Go to share.streamlit.io")
 
     print("5. Connect GitHub repo and deploy!")
+
 
 
