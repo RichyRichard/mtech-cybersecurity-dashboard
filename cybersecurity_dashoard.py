@@ -662,6 +662,8 @@ class EthicalAnalyzer:
 
 # ========== STREAMLIT DASHBOARD ==========
 
+# ========== STREAMLIT DASHBOARD ==========
+
 def create_dashboard():
     """Create the main Streamlit dashboard"""
 
@@ -724,6 +726,9 @@ def create_dashboard():
     # Initialize components
     if 'cyber_data' not in st.session_state:
         st.session_state.cyber_data = pd.DataFrame()
+    
+    # Initialize fetcher for sample data
+    fetcher = CybersecurityDataFetcher()
 
     # Sidebar
     with st.sidebar:
@@ -795,11 +800,13 @@ def create_dashboard():
         col1, col2 = st.columns(2)
         with col1:
             viz = CybersecurityVisualizer()
-            fig = viz.create_severity_chart(viz._get_sample_nvd_data())
+            # FIX: Use fetcher to get sample data, not viz
+            fig = viz.create_severity_chart(fetcher._get_sample_nvd_data())
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig = viz.create_category_chart(viz._get_sample_cisa_data())
+            # FIX: Use fetcher to get sample data, not viz
+            fig = viz.create_category_chart(fetcher._get_sample_cisa_data())
             st.plotly_chart(fig, use_container_width=True)
 
         return
@@ -1063,4 +1070,5 @@ if __name__ == "__main__":
     print("4. Go to share.streamlit.io")
 
     print("5. Connect GitHub repo and deploy!")
+
 
