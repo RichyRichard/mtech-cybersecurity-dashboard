@@ -2,330 +2,220 @@ import nest_asyncio
 nest_asyncio.apply()
 
 import asyncio
+print("Async loop patched successfully")
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 import aiohttp
+
+print("All core libraries imported successfully")
+
+import asyncio
+import aiohttp
+import pandas as pd
 from datetime import datetime, timedelta
+
+class TestFetcher:
+    async def run(self):
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+                timeout=10
+            ) as resp:
+                data = await resp.json()
+                return len(data.get("vulnerabilities", []))
+
+async def main():
+    f = TestFetcher()
+    count = await f.run()
+    print("CISA vulnerabilities fetched:", count)
+
+asyncio.get_event_loop().run_until_complete(main())
+
+# cybersecurity_dashboard.py
+# Run this ENTIRE code in ONE Google Colab cell to test
+# Then copy this file to GitHub for Streamlit deployment
+
+import pandas as pd
+import numpy as np
+import requests
+import json
+import asyncio
+import aiohttp
+from datetime import datetime, timedelta
+import plotly.graph_objects as go
+import plotly.express as px
+import streamlit as st
 import re
 from collections import Counter
-import time
 
-print("All libraries imported successfully")
+# ========== FREE CYBERSECURITY DATA COLLECTOR ==========
 
-# ========== ENHANCED CYBERSECURITY DATA COLLECTOR ==========
+class CybersecurityDataFetcher:
+    """Fetch real-time cybersecurity data from FREE public APIs (no authentication needed)"""
 
-class EnhancedCybersecurityDataFetcher:
-    """Enhanced fetcher with better error handling and caching"""
-    
     def __init__(self):
         self.session = None
-        self.cache = {}
-        self.cache_duration = timedelta(minutes=5)
-        
+
     async def create_session(self):
-        """Create aiohttp session with custom headers"""
-        timeout = aiohttp.ClientTimeout(total=30)
-        self.session = aiohttp.ClientSession(
-            timeout=timeout,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json'
-            }
-        )
-    
+        self.session = aiohttp.ClientSession()
+
     async def close_session(self):
         if self.session:
             await self.session.close()
-    
+
+    # 1. CISA Known Exploited Vulnerabilities (US Government)
     async def get_cisa_vulnerabilities(self):
-        """Get exploited vulnerabilities from CISA with caching"""
-        cache_key = 'cisa_vulns'
-        if cache_key in self.cache:
-            cached_time, data = self.cache[cache_key]
-            if datetime.now() - cached_time < self.cache_duration:
-                return data
-        
+        """Get exploited vulnerabilities from CISA"""
         try:
             url = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
-            async with self.session.get(url, timeout=15, ssl=False) as response:
+            async with self.session.get(url, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
+
                     vulnerabilities = []
-                    for item in data.get('vulnerabilities', [])[:100]:  # Increased limit
+                    for item in data.get('vulnerabilities', [])[:50]:  # Limit to 50
                         vuln = {
                             'source': 'CISA',
                             'cve_id': item.get('cveID', 'Unknown'),
                             'vendor': item.get('vendorProject', 'Unknown'),
                             'product': item.get('product', 'Unknown'),
-                            'description': item.get('shortDescription', '')[:200],
+                            'description': item.get('shortDescription', '')[:150],
                             'date_added': item.get('dateAdded', ''),
                             'required_action': item.get('requiredAction', ''),
-                            'due_date': item.get('dueDate', ''),
                             'category': 'Exploited Vulnerability',
-                            'severity': self._classify_cisa_severity(item),
-                            'risk_score': self._calculate_risk_score(item)
+                            'severity': self._classify_cisa_severity(item)
                         }
                         vulnerabilities.append(vuln)
-                    
-                    df = pd.DataFrame(vulnerabilities)
-                    self.cache[cache_key] = (datetime.now(), df)
-                    return df
+
+                    return pd.DataFrame(vulnerabilities)
         except Exception as e:
-            st.error(f"CISA API Error: {str(e)[:100]}")
-            return self._get_enhanced_cisa_data()
-    
-    async def get_nvd_vulnerabilities(self, days=30):
-        """Get recent CVEs from NIST with enhanced data"""
-        cache_key = f'nvd_vulns_{days}'
-        if cache_key in self.cache:
-            cached_time, data = self.cache[cache_key]
-            if datetime.now() - cached_time < self.cache_duration:
-                return data
-        
+            print(f"CISA Error: {str(e)[:100]}")
+            return self._get_sample_cisa_data()
+
+    # 2. National Vulnerability Database (FREE)
+    async def get_nvd_vulnerabilities(self, days=7):
+        """Get recent CVEs from NIST"""
         try:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
-            
-            url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+
+            url = f"https://services.nvd.nist.gov/rest/json/cves/2.0"
             params = {
-                "pubStartDate": start_date.strftime("%Y-%m-%dT00:00:00.000"),
-                "pubEndDate": end_date.strftime("%Y-%m-%dT23:59:59.999"),
-                "resultsPerPage": 50,
-                "startIndex": 0
+                "pubStartDate": start_date.strftime("%Y-%m-%dT00:00:00:000 UTC-00:00"),
+                "pubEndDate": end_date.strftime("%Y-%m-%dT23:59:59:999 UTC-00:00"),
+                "resultsPerPage": 30
             }
-            
-            async with self.session.get(url, params=params, timeout=20) as response:
+
+            async with self.session.get(url, params=params, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
+
                     vulnerabilities = []
-                    for vuln in data.get('vulnerabilities', [])[:50]:
+                    for vuln in data.get('vulnerabilities', [])[:30]:
                         cve = vuln['cve']
-                        
-                        # Extract CVSS scores
+
+                        # Get CVSS score
                         cvss_score = 0.0
-                        cvss_vector = ''
                         metrics = cve.get('metrics', {})
-                        
                         if 'cvssMetricV31' in metrics:
-                            cvss_data = metrics['cvssMetricV31'][0]['cvssData']
-                            cvss_score = cvss_data['baseScore']
-                            cvss_vector = cvss_data.get('vectorString', '')
+                            cvss_score = metrics['cvssMetricV31'][0]['cvssData']['baseScore']
                         elif 'cvssMetricV2' in metrics:
-                            cvss_data = metrics['cvssMetricV2'][0]['cvssData']
-                            cvss_score = cvss_data['baseScore']
-                            cvss_vector = cvss_data.get('vectorString', '')
-                        
+                            cvss_score = metrics['cvssMetricV2'][0]['cvssData']['baseScore']
+
                         # Get description
                         description = ''
                         for desc in cve.get('descriptions', []):
                             if desc['lang'] == 'en':
                                 description = desc['value']
                                 break
-                        
-                        # Get references
-                        references = []
-                        for ref in cve.get('references', [])[:3]:
-                            references.append(ref.get('url', ''))
-                        
+
                         vulnerabilities.append({
                             'source': 'NVD',
                             'cve_id': cve['id'],
-                            'description': description[:250],
+                            'description': description[:200],
                             'cvss_score': cvss_score,
-                            'cvss_vector': cvss_vector,
                             'severity': self._cvss_to_severity(cvss_score),
                             'published_date': cve.get('published', ''),
-                            'last_modified': cve.get('lastModified', ''),
-                            'references': ' | '.join(references),
-                            'category': 'Software Vulnerability',
-                            'risk_score': cvss_score * 10  # Scale to 0-100
+                            'category': 'Software Vulnerability'
                         })
-                    
-                    df = pd.DataFrame(vulnerabilities)
-                    self.cache[cache_key] = (datetime.now(), df)
-                    return df
+
+                    return pd.DataFrame(vulnerabilities)
         except Exception as e:
-            st.error(f"NVD API Error: {str(e)[:100]}")
-            return self._get_enhanced_nvd_data()
-    
+            print(f"NVD Error: {str(e)[:100]}")
+            return self._get_sample_nvd_data()
+
+    # 3. MalwareBazaar Recent Samples
     async def get_malware_samples(self):
-        """Get recent malware samples from MalwareBazaar"""
+        """Get recent malware samples"""
         try:
             url = "https://mb-api.abuse.ch/api/v1/"
-            data = {"query": "get_recent", "selector": "time", "limit": 30}
-            
-            async with self.session.post(url, data=data, timeout=20) as response:
+            data = {"query": "get_recent", "selector": "time", "limit": 20}
+
+            async with self.session.post(url, data=data, timeout=15) as response:
                 if response.status == 200:
                     result = await response.json()
-                    
+
                     malware_list = []
                     if result.get('query_status') == 'ok':
-                        for sample in result.get('data', [])[:20]:
-                            # Calculate threat level
-                            tags = sample.get('tags', [])
-                            threat_level = self._calculate_malware_threat_level(sample)
-                            
+                        for sample in result.get('data', [])[:15]:
                             malware_list.append({
                                 'source': 'MalwareBazaar',
-                                'sha256_hash': sample.get('sha256_hash', 'Unknown'),
-                                'file_name': sample.get('file_name', 'Unknown'),
+                                'sha256_hash': sample.get('sha256_hash', '')[:20] + '...',
                                 'file_type': sample.get('file_type', 'Unknown'),
-                                'file_size': sample.get('file_size_mb', 0),
                                 'signature': sample.get('signature', 'Unknown'),
                                 'first_seen': sample.get('first_seen', ''),
-                                'last_seen': sample.get('last_seen', ''),
-                                'tags': ', '.join(tags[:5]),
+                                'tags': ', '.join(sample.get('tags', [])[:3]),
                                 'malware_type': self._classify_malware(sample),
                                 'category': 'Malware Sample',
-                                'severity': self._malware_to_severity(threat_level),
-                                'threat_level': threat_level,
-                                'risk_score': threat_level * 10
+                                'severity': 'High'
                             })
-                    
+
                     return pd.DataFrame(malware_list)
         except Exception as e:
-            st.error(f"MalwareBazaar Error: {str(e)[:100]}")
-            return self._get_enhanced_malware_data()
-    
+            print(f"MalwareBazaar Error: {str(e)[:100]}")
+            return self._get_sample_malware_data()
+
+    # 4. OpenPhishing URLs
     async def get_phishing_urls(self):
-        """Get live phishing URLs from multiple sources"""
+        """Get live phishing URLs"""
         try:
-            # Try multiple sources
-            sources = [
-                "https://openphish.com/feed.txt",
-                "https://phishtank.org/developer_info.php"
-            ]
-            
-            phishing_urls = []
-            
-            for source_url in sources:
-                try:
-                    async with self.session.get(source_url, timeout=10) as response:
-                        if response.status == 200:
-                            text = await response.text()
-                            urls = text.strip().split('\n')[:15]
-                            
-                            for url in urls:
-                                if url.startswith('http'):
-                                    phishing_urls.append({
-                                        'source': 'PhishTank' if 'phishtank' in source_url else 'OpenPhish',
-                                        'url': url[:100] + '...' if len(url) > 100 else url,
-                                        'domain': self._extract_domain(url),
-                                        'detection_date': datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                        'category': 'Phishing URL',
-                                        'severity': 'Critical',
-                                        'risk_score': 95
-                                    })
-                except:
-                    continue
-            
-            if not phishing_urls:
-                return self._get_enhanced_phishing_data()
-            
-            return pd.DataFrame(phishing_urls)
+            url = "https://openphish.com/feed.txt"
+
+            async with self.session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    text = await response.text()
+
+                    phishing_urls = []
+                    for i, url_line in enumerate(text.strip().split('\n')[:25]):
+                        phishing_urls.append({
+                            'source': 'OpenPhishing',
+                            'url': url_line[:80] + '...' if len(url_line) > 80 else url_line,
+                            'domain': self._extract_domain(url_line),
+                            'detection_date': datetime.now().strftime("%Y-%m-%d"),
+                            'category': 'Phishing URL',
+                            'severity': 'Critical'
+                        })
+
+                    return pd.DataFrame(phishing_urls)
         except Exception as e:
-            st.error(f"Phishing Sources Error: {str(e)[:100]}")
-            return self._get_enhanced_phishing_data()
-    
+            print(f"OpenPhishing Error: {str(e)[:100]}")
+            return self._get_sample_phishing_data()
+
+    # 5. Cybersecurity News
     async def get_cyber_news(self):
-        """Get cybersecurity news from various RSS feeds"""
+        """Get latest cybersecurity news"""
         try:
-            # Use NewsAPI if available, otherwise use sample
-            news_api_key = st.secrets.get("NEWS_API_KEY", None)
-            
-            if news_api_key:
-                url = f"https://newsapi.org/v2/everything"
-                params = {
-                    'q': 'cybersecurity OR hack OR data breach',
-                    'apiKey': news_api_key,
-                    'pageSize': 10,
-                    'language': 'en',
-                    'sortBy': 'publishedAt'
-                }
-                
-                async with self.session.get(url, params=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        articles = data.get('articles', [])
-                        
-                        news_list = []
-                        for article in articles[:8]:
-                            news_list.append({
-                                'source': article.get('source', {}).get('name', 'News'),
-                                'title': article.get('title', 'No title'),
-                                'description': article.get('description', 'No description')[:200],
-                                'url': article.get('url', '#'),
-                                'published_at': article.get('publishedAt', ''),
-                                'category': 'Security News',
-                                'severity': 'Medium',
-                                'risk_score': 50
-                            })
-                        
-                        return pd.DataFrame(news_list)
-            
-            # Fallback to sample data
-            return self._get_enhanced_news_data()
+            # Use NewsAPI (you'll need to get a free key from newsapi.org)
+            # For now, use sample data
+            return self._get_sample_news_data()
         except:
-            return self._get_enhanced_news_data()
-    
+            return self._get_sample_news_data()
+
     # Helper Methods
-    def _calculate_risk_score(self, item):
-        """Calculate risk score based on multiple factors"""
-        score = 50  # Base score
-        
-        # Adjust based on required action
-        action = item.get('requiredAction', '').lower()
-        if 'immediate' in action:
-            score += 30
-        elif 'urgent' in action:
-            score += 20
-        elif 'required' in action:
-            score += 10
-        
-        # Adjust based on vendor
-        vendor = item.get('vendorProject', '').lower()
-        if any(v in vendor for v in ['microsoft', 'google', 'apple', 'adobe']):
-            score += 15
-        
-        return min(score, 100)
-    
-    def _calculate_malware_threat_level(self, sample):
-        """Calculate threat level for malware (1-10)"""
-        threat_level = 5
-        
-        signature = sample.get('signature', '').lower()
-        tags = sample.get('tags', [])
-        
-        if 'ransom' in signature:
-            threat_level += 3
-        if 'stealer' in signature or 'keylogger' in signature:
-            threat_level += 2
-        if 'backdoor' in signature or 'trojan' in signature:
-            threat_level += 2
-        
-        # Check tags
-        tag_list = [tag.lower() for tag in tags]
-        if 'cobaltstrike' in tag_list:
-            threat_level += 2
-        if 'exploit' in tag_list:
-            threat_level += 2
-        
-        return min(threat_level, 10)
-    
-    def _malware_to_severity(self, threat_level):
-        if threat_level >= 8:
-            return 'Critical'
-        elif threat_level >= 6:
-            return 'High'
-        elif threat_level >= 4:
-            return 'Medium'
-        return 'Low'
-    
     def _classify_cisa_severity(self, item):
         action = item.get('requiredAction', '').lower()
         if 'immediate' in action:
@@ -333,7 +223,7 @@ class EnhancedCybersecurityDataFetcher:
         elif 'urgent' in action:
             return 'High'
         return 'Medium'
-    
+
     def _cvss_to_severity(self, score):
         if score >= 9.0:
             return 'Critical'
@@ -342,7 +232,7 @@ class EnhancedCybersecurityDataFetcher:
         elif score >= 4.0:
             return 'Medium'
         return 'Low'
-    
+
     def _classify_malware(self, sample):
         signature = sample.get('signature', '').lower()
         if 'ransom' in signature:
@@ -351,572 +241,306 @@ class EnhancedCybersecurityDataFetcher:
             return 'Trojan'
         elif 'worm' in signature:
             return 'Worm'
-        elif 'backdoor' in signature:
-            return 'Backdoor'
-        elif 'stealer' in signature:
-            return 'InfoStealer'
         return 'Malware'
-    
+
     def _extract_domain(self, url):
+        import re
         match = re.search(r'https?://([^/]+)', url)
-        return match.group(1) if match else url[:40]
-    
-    # Enhanced Sample Data
-    def _get_enhanced_cisa_data(self):
-        now = datetime.now()
-        dates = [(now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(10)]
-        
+        return match.group(1) if match else url[:30]
+
+    # Sample Data (Fallback)
+    def _get_sample_cisa_data(self):
         data = {
-            'source': ['CISA'] * 20,
-            'cve_id': [f'CVE-2024-{i:04d}' for i in range(5000, 5020)],
+            'source': ['CISA'] * 10,
+            'cve_id': [f'CVE-2024-{i:04d}' for i in range(1000, 1010)],
             'vendor': ['Microsoft', 'Google', 'Apple', 'Adobe', 'Cisco',
-                      'Oracle', 'IBM', 'Linux Foundation', 'Apache', 'Mozilla',
-                      'VMware', 'Red Hat', 'SAP', 'Salesforce', 'Zoom',
-                      'Slack', 'GitHub', 'Docker', 'Kubernetes', 'TensorFlow'],
-            'product': ['Windows 11', 'Chrome', 'iOS 17', 'Acrobat Reader', 'Catalyst 9000',
-                       'Java SE', 'WebSphere', 'Linux Kernel', 'HTTP Server', 'Firefox',
-                       'vSphere', 'Enterprise Linux', 'NetWeaver', 'Salesforce Platform',
-                       'Zoom Client', 'Slack Desktop', 'GitHub Enterprise', 'Docker Engine',
-                       'Kubernetes', 'TensorFlow'],
+                      'Oracle', 'IBM', 'Linux', 'Apache', 'Mozilla'],
+            'product': ['Windows 11', 'Chrome', 'iOS', 'Reader', 'Router',
+                       'Database', 'WebSphere', 'Kernel', 'HTTP Server', 'Firefox'],
             'description': [
-                'Remote code execution in Windows Kernel',
-                'Zero-day in V8 JavaScript engine',
-                'Privilege escalation in iOS Sandbox',
-                'Memory corruption in PDF parser',
-                'Authentication bypass in web interface',
-                'SQL injection in database connector',
-                'Cross-site scripting in admin console',
-                'Buffer overflow in network driver',
-                'Denial of service in HTTP/2 implementation',
-                'Information disclosure in browser cache',
-                'Virtual machine escape vulnerability',
-                'Container breakout vulnerability',
-                'Business logic bypass in ERP system',
-                'OAuth token leakage in cloud platform',
-                'Meeting hijacking vulnerability',
-                'Workspace data exposure',
-                'Repository access control bypass',
-                'Container image tampering',
-                'Cluster privilege escalation',
-                'ML model poisoning attack'
+                'Remote code execution vulnerability',
+                'Zero-day in browser engine',
+                'Privilege escalation bug',
+                'Memory corruption issue',
+                'Authentication bypass flaw',
+                'SQL injection vulnerability',
+                'Cross-site scripting bug',
+                'Buffer overflow in driver',
+                'Denial of service attack vector',
+                'Information disclosure flaw'
             ],
-            'date_added': dates * 2,
             'severity': ['Critical', 'High', 'Critical', 'High', 'Medium',
-                        'High', 'Medium', 'Critical', 'Medium', 'High',
-                        'Critical', 'High', 'Medium', 'High', 'Medium',
-                        'High', 'Medium', 'High', 'Critical', 'High'],
-            'category': ['Exploited Vulnerability'] * 20,
-            'risk_score': [95, 85, 90, 80, 65, 75, 60, 85, 70, 80,
-                          90, 75, 65, 85, 60, 70, 65, 75, 85, 70]
+                        'High', 'Medium', 'Critical', 'Medium', 'High'],
+            'category': ['Exploited Vulnerability'] * 10
         }
         return pd.DataFrame(data)
-    
-    def _get_enhanced_nvd_data(self):
+
+    def _get_sample_nvd_data(self):
         data = {
-            'source': ['NVD'] * 25,
-            'cve_id': [f'CVE-2024-{i:04d}' for i in range(3000, 3025)],
+            'source': ['NVD'] * 15,
+            'cve_id': [f'CVE-2024-{i:04d}' for i in range(2000, 2015)],
             'description': [
-                'Critical RCE in web application framework',
-                'Authentication bypass in API gateway',
-                'Remote code execution in microservices',
-                'Privilege escalation in container runtime',
-                'Information disclosure in logging system',
-                'Cross-site scripting in admin dashboard',
-                'SQL injection in ORM layer',
-                'Buffer overflow in TCP/IP stack',
-                'Denial of service in load balancer',
-                'Memory corruption in JSON parser',
-                'Path traversal in file upload feature',
-                'Command injection in system calls',
-                'Cryptographic weakness in TLS implementation',
-                'Input validation error in REST API',
-                'Session fixation in authentication service',
-                'CSRF in web application forms',
-                'XXE in XML processor',
-                'SSRF in webhook implementation',
-                'Deserialization vulnerability in RPC',
-                'Open redirect in OAuth flow',
-                'Header injection in HTTP proxy',
-                'Type confusion in JavaScript engine',
-                'Race condition in file system',
-                'Logic bug in access control',
-                'Configuration vulnerability in cloud service'
+                'Critical vulnerability in web framework',
+                'High severity authentication bypass',
+                'Remote code execution in application',
+                'Privilege escalation in service',
+                'Information disclosure bug',
+                'Cross-site scripting vulnerability',
+                'SQL injection in database layer',
+                'Buffer overflow in network stack',
+                'Denial of service in protocol',
+                'Memory corruption in parser',
+                'Path traversal vulnerability',
+                'Command injection flaw',
+                'Cryptographic weakness',
+                'Input validation error',
+                'Session fixation issue'
             ],
-            'cvss_score': [9.8, 8.8, 9.1, 7.8, 6.5, 8.2, 9.3, 7.5, 6.8, 8.9,
-                          7.2, 9.0, 6.3, 7.9, 6.1, 8.5, 7.8, 8.1, 9.2, 6.5,
-                          7.3, 8.7, 6.9, 7.4, 6.2],
+            'cvss_score': [9.8, 8.8, 9.1, 7.8, 6.5, 8.2, 9.3, 7.5, 6.8, 8.9, 7.2, 9.0, 6.3, 7.9, 6.1],
             'severity': ['Critical', 'High', 'Critical', 'High', 'Medium',
                         'High', 'Critical', 'High', 'Medium', 'High',
-                        'High', 'Critical', 'Medium', 'High', 'Medium',
-                        'High', 'High', 'High', 'Critical', 'Medium',
-                        'High', 'High', 'Medium', 'High', 'Medium'],
-            'category': ['Software Vulnerability'] * 25,
-            'risk_score': [98, 88, 91, 78, 65, 82, 93, 75, 68, 89,
-                          72, 90, 63, 79, 61, 85, 78, 81, 92, 65,
-                          73, 87, 69, 74, 62]
+                        'High', 'Critical', 'Medium', 'High', 'Medium'],
+            'category': ['Software Vulnerability'] * 15
         }
         return pd.DataFrame(data)
-    
-    def _get_enhanced_malware_data(self):
+
+    def _get_sample_malware_data(self):
         data = {
-            'source': ['MalwareBazaar'] * 15,
-            'sha256_hash': [f'a1b2c3d4e5f6{"%02d" % i}' for i in range(15)],
-            'file_name': [f'malware_sample_{i}.exe' for i in range(15)],
-            'file_type': ['exe', 'dll', 'pdf', 'docx', 'js', 'vbs', 'py', 'ps1', 'jar', 'html',
-                         'php', 'scr', 'bat', 'wsf', 'lnk'],
-            'signature': ['Ransomware.LockBit', 'Trojan.Emotet', 'Spyware.AgentTesla',
-                         'Worm.Mirai', 'Downloader.Qakbot', 'Backdoor.CobaltStrike',
-                         'Dropper.Trickbot', 'Adware.BrowserHijacker', 'RAT.Njrat',
-                         'Cryptominer.XMRig', 'Banker.Zeus', 'Wiper.NotPetya',
-                         'Loader.Ursnif', 'Stealer.RedLine', 'Exploit.CVE-2024-1234'],
-            'malware_type': ['Ransomware', 'Trojan', 'Spyware', 'Worm', 'Downloader',
-                            'Backdoor', 'Dropper', 'Adware', 'Remote Access Trojan',
-                            'Cryptominer', 'Banking Trojan', 'Wiper', 'Loader',
-                            'InfoStealer', 'Exploit Kit'],
-            'severity': ['Critical', 'High', 'Medium', 'High', 'High',
-                        'Critical', 'High', 'Low', 'High', 'Medium',
-                        'High', 'Critical', 'Medium', 'High', 'Critical'],
-            'threat_level': [9, 8, 6, 7, 8, 9, 7, 3, 8, 5, 8, 10, 6, 7, 9],
-            'category': ['Malware Sample'] * 15,
-            'risk_score': [90, 80, 60, 70, 80, 90, 70, 30, 80, 50, 80, 100, 60, 70, 90]
+            'source': ['MalwareBazaar'] * 8,
+            'sha256_hash': [f'sha256_hash_{i}'[:20] + '...' for i in range(8)],
+            'file_type': ['exe', 'dll', 'pdf', 'doc', 'js', 'vbs', 'py', 'ps1'],
+            'signature': ['Ransomware.WannaCry', 'Trojan.Emotet', 'Spyware.Keylogger',
+                         'Worm.Stuxnet', 'Downloader.Agent', 'Backdoor.Netwire',
+                         'Dropper.Trickbot', 'Adware.BrowserHijacker'],
+            'malware_type': ['Ransomware', 'Trojan', 'Spyware', 'Worm',
+                            'Downloader', 'Backdoor', 'Dropper', 'Adware'],
+            'severity': ['Critical', 'High', 'Medium', 'Critical',
+                        'High', 'High', 'Medium', 'Low'],
+            'category': ['Malware Sample'] * 8
         }
         return pd.DataFrame(data)
-    
-    def _get_enhanced_phishing_data(self):
+
+    def _get_sample_phishing_data(self):
         data = {
-            'source': ['PhishTank', 'OpenPhish'] * 6,
+            'source': ['OpenPhishing'] * 12,
             'url': [
-                'https://secure-paypal-login[.]com/verify',
-                'http://microsoft-account-security[.]net/login',
-                'https://amazon-customer-service[.]xyz/update',
-                'http://apple-id-confirmation[.]com/auth',
-                'https://netflix-payment-info[.]cc/billing',
-                'http://google-account-recovery[.]net/secure',
-                'https://bankofamerica-online[.]xyz/signin',
-                'http://whatsapp-verification[.]com/confirm',
-                'https://instagram-security-check[.]cc/login',
-                'http://twitter-account-alert[.]xyz/password',
-                'https://linkedin-profile-verify[.]net/auth',
-                'http://github-security-update[.]com/2fa'
+                'https://fake-paypal-login.com/auth',
+                'http://microsoft-verify-account.net',
+                'https://amazon-security-update.xyz',
+                'http://apple-id-confirm.com/login',
+                'https://netflix-billing-info.cc',
+                'http://google-drive-alert.com/verify',
+                'https://bankofamerica-secure.xyz',
+                'http://whatsapp-web-login.net',
+                'https://instagram-verify-account.cc',
+                'http://twitter-password-reset.xyz',
+                'https://linkedin-security-alert.net',
+                'http://github-2fa-verify.com'
             ],
             'domain': [
-                'secure-paypal-login[.]com',
-                'microsoft-account-security[.]net',
-                'amazon-customer-service[.]xyz',
-                'apple-id-confirmation[.]com',
-                'netflix-payment-info[.]cc',
-                'google-account-recovery[.]net',
-                'bankofamerica-online[.]xyz',
-                'whatsapp-verification[.]com',
-                'instagram-security-check[.]cc',
-                'twitter-account-alert[.]xyz',
-                'linkedin-profile-verify[.]net',
-                'github-security-update[.]com'
+                'fake-paypal-login.com',
+                'microsoft-verify-account.net',
+                'amazon-security-update.xyz',
+                'apple-id-confirm.com',
+                'netflix-billing-info.cc',
+                'google-drive-alert.com',
+                'bankofamerica-secure.xyz',
+                'whatsapp-web-login.net',
+                'instagram-verify-account.cc',
+                'twitter-password-reset.xyz',
+                'linkedin-security-alert.net',
+                'github-2fa-verify.com'
             ],
-            'detection_date': [(datetime.now() - timedelta(hours=i)).strftime("%Y-%m-%d %H:%M") 
-                              for i in range(12)],
             'severity': ['Critical'] * 12,
-            'category': ['Phishing URL'] * 12,
-            'risk_score': [95] * 12
+            'category': ['Phishing URL'] * 12
         }
         return pd.DataFrame(data)
-    
-    def _get_enhanced_news_data(self):
+
+    def _get_sample_news_data(self):
         data = {
-            'source': ['Security Week', 'KrebsOnSecurity', 'ThreatPost', 'DarkReading',
-                      'BleepingComputer', 'The Hacker News', 'CSO Online', 'Help Net Security'] * 2,
+            'source': ['Security News'] * 6,
             'title': [
-                'Major Healthcare Data Breach Affects 10 Million Patients',
-                'New Zero-Day Exploited in the Wild Targeting Financial Institutions',
-                'Ransomware Gang Cripples Critical Infrastructure Provider',
-                'Sophisticated Phishing Campaign Uses AI-Generated Content',
-                'Critical Vulnerability Discovered in IoT Device Management Platform',
-                'Supply Chain Attack Compromises Software Development Tools',
-                'Nation-State Actors Target Energy Sector with Advanced Malware',
-                'Cloud Security Misconfigurations Lead to Massive Data Exposure',
-                'New Malware Family Uses Novel Evasion Techniques',
-                'Critical Patch Tuesday Updates Address 150+ Vulnerabilities',
-                'Cyber Insurance Premiums Skyrocket Following Recent Attacks',
-                'Regulators Announce Stricter Cybersecurity Compliance Requirements',
-                'AI-Powered Security Tools Show Promise in Threat Detection',
-                'Quantum Computing Threats Prompt Crypto-Agility Initiatives',
-                'Bug Bounty Programs Yield Record Payouts for Critical Findings',
-                'Cybersecurity Skills Gap Widens Amid Growing Threat Landscape'
+                'Major Data Breach Exposes Millions of User Records',
+                'New Zero-Day Vulnerability Discovered in Popular Software',
+                'Ransomware Attack Cripples Healthcare System',
+                'Phishing Campaign Targets Financial Institutions',
+                'IoT Devices Vulnerable to New Attack Vector',
+                'Supply Chain Attack Compromises Multiple Organizations'
             ],
             'description': [
-                'Personal health information including medical records exposed in latest breach',
-                'Attackers exploiting unpatched vulnerability before vendor release of fix',
-                'Ransomware attack disrupts operations at major utility company',
-                'Phishing emails using AI-generated content bypass traditional filters',
-                'Vulnerability allows remote takeover of IoT devices across networks',
-                'Malware distributed through compromised software development pipelines',
-                'Advanced persistent threat group targets energy grid operators',
-                'Misconfigured cloud storage buckets expose sensitive customer data',
-                'Malware uses multiple evasion techniques to avoid detection',
-                'Microsoft addresses multiple critical vulnerabilities in monthly update',
-                'Insurance companies raising premiums following surge in cyber claims',
-                'New regulations require enhanced security measures for critical infrastructure',
-                'Machine learning algorithms improve detection of sophisticated attacks',
-                'Organizations preparing for post-quantum cryptography migration',
-                'Security researchers earn millions through responsible disclosure programs',
-                'Industry faces shortage of skilled cybersecurity professionals'
+                'Personal information including emails and passwords exposed',
+                'Critical flaw allows remote code execution without authentication',
+                'Patient data encrypted, hospitals unable to access medical records',
+                'Sophisticated emails trick users into revealing credentials',
+                'Smart devices can be taken over to create botnets',
+                'Malware distributed through trusted software updates'
             ],
-            'published_at': [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") 
-                            for i in range(16)],
-            'severity': ['Critical', 'High', 'Critical', 'High', 'High', 'Critical',
-                        'High', 'Medium', 'Medium', 'High', 'Medium', 'Medium',
-                        'Low', 'Low', 'Low', 'Medium'],
-            'category': ['Security News'] * 16,
-            'risk_score': [90, 85, 95, 80, 85, 90, 80, 65, 60, 75, 55, 50, 40, 45, 35, 60]
+            'severity': ['Critical', 'High', 'Critical', 'High', 'Medium', 'High'],
+            'category': ['Security News'] * 6
         }
         return pd.DataFrame(data)
 
-# ========== PREMIUM VISUALIZATION ENGINE ==========
+# ========== VISUALIZATION ENGINE ==========
 
-class PremiumCybersecurityVisualizer:
-    """Create premium cybersecurity visualizations with advanced features"""
-    
-    def __init__(self):
-        self.colors = {
-            'Critical': '#FF1744',
-            'High': '#FF5252',
-            'Medium': '#FF9800',
-            'Low': '#4CAF50',
-            'Info': '#2196F3',
-            'Dark': '#1a1a2e',
-            'Light': '#16213e',
-            'Accent': '#0f3460',
-            'Highlight': '#e94560'
-        }
-    
+class CybersecurityVisualizer:
+    """Create professional cybersecurity visualizations"""
+
     def create_threat_timeline(self, data):
-        """Create advanced timeline chart with multiple metrics"""
-        fig = go.Figure()
-        
-        # Add multiple metrics
-        dates = pd.date_range(end=datetime.now(), periods=30, freq='D')
-        
-        # Simulate threat data
-        critical_threats = np.random.randint(5, 25, 30)
-        high_threats = np.random.randint(10, 40, 30)
-        total_threats = critical_threats + high_threats
-        
-        fig.add_trace(go.Scatter(
+        """Create timeline chart of threats"""
+        if data.empty:
+            return self._create_empty_chart("No timeline data available")
+
+        # Simulate dates for timeline
+        dates = pd.date_range(end=datetime.now(), periods=10, freq='D')
+        threat_counts = np.random.randint(5, 50, 10)
+
+        fig = go.Figure(data=go.Scatter(
             x=dates,
-            y=total_threats,
-            mode='lines',
-            name='Total Threats',
-            line=dict(color=self.colors['Highlight'], width=4),
+            y=threat_counts,
+            mode='lines+markers',
+            line=dict(color='#FF6B6B', width=3),
+            marker=dict(size=8, color='#FF6B6B'),
             fill='tozeroy',
-            fillcolor='rgba(233, 69, 96, 0.1)'
+            fillcolor='rgba(255, 107, 107, 0.2)',
+            name='Threats Detected'
         ))
-        
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=critical_threats,
-            mode='lines',
-            name='Critical Threats',
-            line=dict(color=self.colors['Critical'], width=3, dash='dash'),
-            fill='tonexty',
-            fillcolor='rgba(255, 23, 68, 0.05)'
-        ))
-        
-        # Add moving average
-        window = 7
-        moving_avg = np.convolve(total_threats, np.ones(window)/window, mode='valid')
-        fig.add_trace(go.Scatter(
-            x=dates[window-1:],
-            y=moving_avg,
-            mode='lines',
-            name=f'{window}-Day Moving Avg',
-            line=dict(color='white', width=2, dash='dot')
-        ))
-        
+
         fig.update_layout(
-            title=dict(
-                text='📈 Threat Detection Timeline (Last 30 Days)',
-                font=dict(size=20, color='white'),
-                x=0.5,
-                xanchor='center'
-            ),
-            xaxis=dict(
-                title='Date',
-                gridcolor='rgba(255,255,255,0.1)',
-                tickformat='%b %d'
-            ),
-            yaxis=dict(
-                title='Number of Threats',
-                gridcolor='rgba(255,255,255,0.1)'
-            ),
+            title='🕒 Threat Detection Timeline (Last 10 Days)',
+            xaxis_title='Date',
+            yaxis_title='Number of Threats',
+            template='plotly_dark',
+            height=350,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white')
+        )
+
+        return fig
+
+    def create_severity_chart(self, data):
+        """Create severity distribution chart"""
+        if data.empty or 'severity' not in data.columns:
+            return self._create_empty_chart("No severity data available")
+
+        severity_counts = data['severity'].value_counts()
+
+        colors = {
+            'Critical': '#FF0000',
+            'High': '#FF6B6B',
+            'Medium': '#FFA726',
+            'Low': '#4CAF50'
+        }
+
+        fig = go.Figure(data=[go.Pie(
+            labels=severity_counts.index,
+            values=severity_counts.values,
+            hole=0.4,
+            marker_colors=[colors.get(label, '#808080') for label in severity_counts.index],
+            textinfo='label+percent',
+            textposition='inside'
+        )])
+
+        fig.update_layout(
+            title='⚠️ Threat Severity Distribution',
+            template='plotly_dark',
+            height=350,
+            showlegend=True
+        )
+
+        return fig
+
+    def create_category_chart(self, data):
+        """Create threat category chart"""
+        if data.empty or 'category' not in data.columns:
+            return self._create_empty_chart("No category data available")
+
+        category_counts = data['category'].value_counts().head(8)
+
+        fig = go.Figure(data=[
+            go.Bar(
+                x=category_counts.values,
+                y=category_counts.index,
+                orientation='h',
+                marker_color=['#FF6B6B', '#FFA726', '#4CAF50', '#2196F3',
+                            '#9C27B0', '#00BCD4', '#8BC34A', '#FF9800'],
+                text=category_counts.values,
+                textposition='auto'
+            )
+        ])
+
+        fig.update_layout(
+            title='🎯 Threat Categories',
+            xaxis_title='Count',
+            yaxis_title='Category',
             template='plotly_dark',
             height=400,
             plot_bgcolor='rgba(0,0,0,0)',
             paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='white'),
-            hovermode='x unified',
-            legend=dict(
-                orientation='h',
-                yanchor='bottom',
-                y=1.02,
-                xanchor='right',
-                x=1
-            ),
-            margin=dict(t=60, l=50, r=50, b=50)
+            font=dict(color='white')
         )
-        
+
         return fig
-    
-    def create_severity_heatmap(self, data):
-        """Create heatmap showing severity over time"""
-        if data.empty or 'severity' not in data.columns:
-            return self._create_empty_chart("No severity data available")
-        
-        # Create sample heatmap data
-        days = 14
-        hours = 24
-        severity_levels = ['Critical', 'High', 'Medium', 'Low']
-        
-        # Generate random heatmap data
-        heatmap_data = np.random.rand(days, hours) * 100
-        
-        fig = go.Figure(data=go.Heatmap(
-            z=heatmap_data,
-            x=list(range(hours)),
-            y=[f'Day {i+1}' for i in range(days)],
-            colorscale='Reds',
-            showscale=True,
-            colorbar=dict(title='Threat Intensity')
-        ))
-        
-        fig.update_layout(
-            title=dict(
-                text='🔥 Threat Intensity Heatmap (Last 14 Days)',
-                font=dict(size=20, color='white'),
-                x=0.5
-            ),
-            xaxis=dict(title='Hour of Day', tickvals=[0, 6, 12, 18, 23]),
-            yaxis=dict(title='Day'),
-            template='plotly_dark',
-            height=400,
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
-        )
-        
-        return fig
-    
-    def create_severity_donut(self, data):
-        """Create donut chart for severity distribution"""
-        if data.empty or 'severity' not in data.columns:
-            return self._create_empty_chart("No severity data available")
-        
-        severity_counts = data['severity'].value_counts()
-        
-        fig = go.Figure(data=[go.Pie(
-            labels=severity_counts.index,
-            values=severity_counts.values,
-            hole=0.6,
-            marker_colors=[self.colors.get(label, '#808080') for label in severity_counts.index],
-            textinfo='label+value+percent',
-            textposition='outside',
-            pull=[0.1 if label == 'Critical' else 0 for label in severity_counts.index],
-            hoverinfo='label+value+percent',
-            sort=False
-        )])
-        
-        fig.update_layout(
-            title=dict(
-                text='⚠️ Threat Severity Distribution',
-                font=dict(size=20, color='white'),
-                x=0.5
-            ),
-            template='plotly_dark',
-            height=400,
-            showlegend=True,
-            legend=dict(
-                orientation='h',
-                yanchor='bottom',
-                y=-0.2,
-                xanchor='center',
-                x=0.5
-            ),
-            annotations=[
-                dict(
-                    text=f'Total<br>{len(data)}',
-                    x=0.5, y=0.5,
-                    font_size=20,
-                    showarrow=False,
-                    font_color='white'
-                )
-            ]
-        )
-        
-        return fig
-    
-    def create_category_sunburst(self, data):
-        """Create sunburst chart for threat categories"""
-        if data.empty or 'category' not in data.columns:
-            return self._create_empty_chart("No category data available")
-        
-        # Prepare hierarchical data
-        categories = data['category'].value_counts().head(8)
-        
-        labels = list(categories.index)
-        parents = [''] * len(labels)
-        values = list(categories.values)
-        
-        # Add severity breakdown
-        for category in categories.index:
-            category_data = data[data['category'] == category]
-            if 'severity' in category_data.columns:
-                severity_counts = category_data['severity'].value_counts()
-                for severity, count in severity_counts.items():
-                    labels.append(severity)
-                    parents.append(category)
-                    values.append(count)
-        
-        fig = go.Figure(go.Sunburst(
-            labels=labels,
-            parents=parents,
-            values=values,
-            branchvalues="total",
-            marker=dict(
-                colors=['#FF1744', '#FF5252', '#FF9800', '#4CAF50',
-                       '#2196F3', '#9C27B0', '#00BCD4', '#8BC34A']
-            ),
-            textinfo='label+value',
-            hoverinfo='label+value+percent parent'
-        ))
-        
-        fig.update_layout(
-            title=dict(
-                text='🎯 Threat Category Hierarchy',
-                font=dict(size=20, color='white'),
-                x=0.5
-            ),
-            template='plotly_dark',
-            height=500,
-            margin=dict(t=40, l=0, r=0, b=0)
-        )
-        
-        return fig
-    
-    def create_cvss_radar(self, data):
-        """Create radar chart for CVSS metrics"""
+
+    def create_cvss_distribution(self, data):
+        """Create CVSS score distribution"""
         if data.empty or 'cvss_score' not in data.columns:
             return self._create_empty_chart("No CVSS data available")
-        
-        # Create sample radar data for different vulnerability types
-        categories = ['Network', 'Local', 'Physical', 'Web', 'Mobile', 'IoT']
-        scores = np.random.randint(4, 10, 6)
-        
-        fig = go.Figure(data=go.Scatterpolar(
-            r=scores,
-            theta=categories,
-            fill='toself',
-            fillcolor='rgba(233, 69, 96, 0.3)',
-            line_color=self.colors['Highlight'],
-            name='CVSS Scores'
-        ))
-        
+
+        fig = px.histogram(
+            data,
+            x='cvss_score',
+            nbins=15,
+            title='📊 CVSS Score Distribution',
+            labels={'cvss_score': 'CVSS Score', 'count': 'Count'},
+            color_discrete_sequence=['#FF6B6B']
+        )
+
         fig.update_layout(
-            title=dict(
-                text='📊 CVSS Score by Vulnerability Type',
-                font=dict(size=20, color='white'),
-                x=0.5
-            ),
+            template='plotly_dark',
+            height=350,
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='white')
+        )
+
+        # Add severity thresholds
+        fig.add_vline(x=9.0, line_dash="dash", line_color="red", annotation_text="Critical")
+        fig.add_vline(x=7.0, line_dash="dash", line_color="orange", annotation_text="High")
+        fig.add_vline(x=4.0, line_dash="dash", line_color="yellow", annotation_text="Medium")
+
+        return fig
+
+    def create_source_activity(self, data):
+        """Create source activity chart"""
+        if data.empty or 'source' not in data.columns:
+            return self._create_empty_chart("No source data available")
+
+        source_counts = data['source'].value_counts()
+
+        fig = go.Figure(data=[
+            go.Scatterpolar(
+                r=source_counts.values,
+                theta=source_counts.index,
+                fill='toself',
+                line_color='#4CAF50',
+                fillcolor='rgba(76, 175, 80, 0.3)',
+                name='Threat Sources'
+            )
+        ])
+
+        fig.update_layout(
+            title='📡 Threat Intelligence Sources',
             polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[0, 10],
-                    tickfont=dict(color='white'),
-                    gridcolor='rgba(255,255,255,0.2)'
-                ),
-                angularaxis=dict(
-                    tickfont=dict(color='white'),
-                    gridcolor='rgba(255,255,255,0.2)'
-                ),
-                bgcolor='rgba(0,0,0,0)'
+                radialaxis=dict(visible=True, range=[0, max(source_counts.values) * 1.1])
             ),
             template='plotly_dark',
             height=400,
             showlegend=False
         )
-        
+
         return fig
-    
-    def create_risk_score_gauge(self, overall_risk):
-        """Create gauge chart for overall risk score"""
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number+delta",
-            value=overall_risk,
-            domain={'x': [0, 1], 'y': [0, 1]},
-            title={'text': "Overall Risk Score", 'font': {'size': 24, 'color': 'white'}},
-            delta={'reference': 50, 'increasing': {'color': "red"}},
-            gauge={
-                'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "white"},
-                'bar': {'color': self.colors['Highlight']},
-                'bgcolor': "rgba(0,0,0,0)",
-                'borderwidth': 2,
-                'bordercolor': "white",
-                'steps': [
-                    {'range': [0, 30], 'color': self.colors['Low']},
-                    {'range': [30, 70], 'color': self.colors['Medium']},
-                    {'range': [70, 90], 'color': self.colors['High']},
-                    {'range': [90, 100], 'color': self.colors['Critical']}
-                ],
-                'threshold': {
-                    'line': {'color': "white", 'width': 4},
-                    'thickness': 0.75,
-                    'value': overall_risk
-                }
-            }
-        ))
-        
-        fig.update_layout(
-            template='plotly_dark',
-            height=300,
-            paper_bgcolor='rgba(0,0,0,0)',
-            font={'color': "white"}
-        )
-        
-        return fig
-    
-    def create_source_contribution(self, data):
-        """Create chart showing contribution from different sources"""
-        if data.empty or 'source' not in data.columns:
-            return self._create_empty_chart("No source data available")
-        
-        source_counts = data['source'].value_counts().head(10)
-        
-        fig = go.Figure(data=[
-            go.Bar(
-                x=source_counts.index,
-                y=source_counts.values,
-                marker_color=self.colors['Highlight'],
-                text=source_counts.values,
-                textposition='auto',
-                hovertemplate='<b>%{x}</b><br>Threats: %{y}<extra></extra>'
-            )
-        ])
-        
-        fig.update_layout(
-            title=dict(
-                text='📡 Threat Intelligence Sources',
-                font=dict(size=20, color='white'),
-                x=0.5
-            ),
-            xaxis_title='Source',
-            yaxis_title='Number of Threats',
-            template='plotly_dark',
-            height=400,
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(color='white'),
-            xaxis=dict(tickangle=45)
-        )
-        
-        return fig
-    
+
     def _create_empty_chart(self, message):
         """Create an empty chart with message"""
         fig = go.Figure()
@@ -935,1030 +559,513 @@ class PremiumCybersecurityVisualizer:
         )
         return fig
 
-# ========== ADVANCED ETHICAL ANALYZER ==========
+# ========== ETHICAL ANALYZER ==========
 
-class AdvancedEthicalAnalyzer:
-    """Perform advanced ethical analysis with scoring and recommendations"""
-    
-    def __init__(self):
-        self.modules = {
-            'module1': 'Ethics and the Professions',
-            'module2': 'Cyberspace Ethics',
-            'module3': 'OSN Privacy & Security',
-            'module4': 'Fraud Detection',
-            'module5': 'Case Studies & Visualization'
-        }
-    
+class EthicalAnalyzer:
+    """Perform ethical analysis aligned with course modules"""
+
     def analyze_threats(self, threat_data):
-        """Perform comprehensive ethical analysis with scores"""
+        """Perform comprehensive ethical analysis"""
         analysis = {
-            'module_analysis': {},
+            'module1_professional_ethics': self._analyze_module1(threat_data),
+            'module2_cyberspace_ethics': self._analyze_module2(threat_data),
+            'module3_osn_privacy': self._analyze_module3(threat_data),
+            'module4_fraud_detection': self._analyze_module4(threat_data),
+            'module5_case_studies': self._analyze_module5(threat_data),
             'course_outcomes': self._check_course_outcomes(),
-            'ethical_scores': self._calculate_ethical_scores(threat_data),
-            'recommendations': self._generate_recommendations(threat_data),
-            'stakeholder_impact': self._analyze_stakeholder_impact(threat_data)
+            'recommended_actions': self._suggest_actions(threat_data)
         }
-        
-        # Analyze each module
-        for module_id, module_name in self.modules.items():
-            analysis['module_analysis'][module_id] = {
-                'name': module_name,
-                'analysis': getattr(self, f'_analyze_{module_id}')(threat_data),
-                'score': self._calculate_module_score(module_id, threat_data)
-            }
-        
         return analysis
-    
-    def _calculate_module_score(self, module_id, data):
-        """Calculate score for each module (0-100)"""
-        base_score = 75
-        
-        if module_id == 'module1':
-            # Based on professional ethics application
-            if 'severity' in data.columns:
-                critical_count = len(data[data['severity'] == 'Critical'])
-                base_score += min(critical_count, 10)  # Up to +10 points
-        elif module_id == 'module2':
-            # Based on cyberspace coverage
-            sources = data['source'].nunique()
-            base_score += min(sources * 2, 15)  # Up to +15 points
-        elif module_id == 'module3':
-            # Based on privacy-related threats
-            privacy_threats = len(data[data['category'].str.contains('Phishing|Malware', case=False)])
-            base_score += min(privacy_threats, 10)  # Up to +10 points
-        
-        return min(base_score, 100)
-    
-    def _calculate_ethical_scores(self, data):
-        """Calculate various ethical scores"""
-        scores = {
-            'professional_responsibility': 85,
-            'privacy_protection': 78,
-            'stakeholder_consideration': 82,
-            'regulatory_compliance': 88,
-            'public_interest': 80
-        }
-        
-        # Adjust based on data
-        if 'severity' in data.columns:
-            critical_percent = len(data[data['severity'] == 'Critical']) / len(data) * 100
-            scores['professional_responsibility'] += min(critical_percent / 5, 10)
-        
-        return {k: min(v, 100) for k, v in scores.items()}
-    
+
     def _analyze_module1(self, data):
         """Module 1: Ethics and the Professions"""
-        analysis = [
-            "🛡️ **Professional Responsibility**: Analysis of ethical obligations in threat response",
-            "📜 **Code Compliance**: Alignment with ACM/IEEE ethical standards",
-            "⚖️ **Decision Frameworks**: Application of ethical decision-making models",
-            "🔍 **Whistle-blowing Protocols**: Procedures for responsible vulnerability disclosure",
-            "🎓 **Professional Development**: Continuous education requirements"
+        phishing_count = len(data[data['category'] == 'Phishing URL'])
+        malware_count = len(data[data['category'] == 'Malware Sample'])
+
+        return [
+            f"Professional Responsibility: {len(data)} threats require ethical response",
+            f"Whistle-blowing Considerations: {phishing_count} phishing attempts detected",
+            f"Ethical Decision Making: Handling {malware_count} malware samples responsibly",
+            "Licensing & Codes: ACM/IEEE ethical standards applied"
         ]
-        
-        # Add data-driven insights
-        if 'severity' in data.columns:
-            critical = len(data[data['severity'] == 'Critical'])
-            analysis.append(f"🚨 **Immediate Actions**: {critical} critical threats requiring professional intervention")
-        
-        return analysis
-    
+
     def _analyze_module2(self, data):
         """Module 2: Cyberspace Ethics"""
-        analysis = [
-            "🌐 **Digital Ethics**: Moral framework for cyberspace operations",
-            "🔐 **Cybersecurity Ethics**: Balancing security with individual rights",
-            "🌍 **Global Perspective**: International ethical considerations",
-            "⚙️ **Technology Ethics**: Ethical implications of security technologies",
-            "🤝 **Digital Citizenship**: Responsibilities in interconnected world"
+        critical_count = len(data[data['severity'] == 'Critical']) if 'severity' in data.columns else 0
+
+        return [
+            f"Cyberspace Security: {critical_count} critical threats in cyberspace",
+            "Privacy Protection: Data breach risks identified",
+            "Global Cybernetics: International threat sources analyzed",
+            "Cyber Culture: Professional response to digital threats"
         ]
-        
-        # Add data insights
-        if 'source' in data.columns:
-            sources = data['source'].nunique()
-            analysis.append(f"📡 **Global Coverage**: Threats from {sources} international sources")
-        
-        return analysis
-    
+
     def _analyze_module3(self, data):
         """Module 3: OSN Privacy & Security"""
-        analysis = [
-            "📱 **Social Media Ethics**: Privacy concerns in OSN platforms",
-            "🔒 **Data Protection**: Ethical handling of personal information",
-            "🎣 **Social Engineering**: Ethical responses to phishing and manipulation",
-            "👥 **Community Standards**: Platform responsibility and user protection",
-            "⚖️ **Legal Framework**: Compliance with data protection regulations"
-        ]
-        
-        # Add phishing insights
         phishing_count = len(data[data['category'] == 'Phishing URL'])
-        analysis.append(f"⚠️ **Social Engineering**: {phishing_count} active phishing campaigns targeting users")
-        
-        return analysis
-    
+
+        return [
+            f"OSN Threats: {phishing_count} social engineering attacks",
+            "Privacy Issues: Personal data protection requirements",
+            "Security Protocols: Authentication and access control needs",
+            "Legislation: Compliance with data protection laws"
+        ]
+
     def _analyze_module4(self, data):
         """Module 4: Fraud Detection"""
-        analysis = [
-            "💳 **Financial Ethics**: Preventing financial fraud in digital systems",
-            "🔍 **Detection Ethics**: Ethical considerations in monitoring and surveillance",
-            "🕵️ **Investigation Protocols**: Ethical forensic investigation methods",
-            "📊 **Analytics Ethics**: Responsible use of AI/ML in fraud detection",
-            "⚖️ **Legal Compliance**: Adherence to anti-fraud regulations"
-        ]
-        
-        # Add malware insights
         malware_count = len(data[data['category'] == 'Malware Sample'])
-        analysis.append(f"🦠 **Fraud Vectors**: {malware_count} malware samples with fraud capabilities")
-        
-        return analysis
-    
+
+        return [
+            f"Fraud Detection: {malware_count} malicious entities identified",
+            "Profile Analysis: Threat actor behavior patterns",
+            "Network Security: Defense against cyber crimes",
+            "Detection Protocols: Real-time threat monitoring"
+        ]
+
     def _analyze_module5(self, data):
         """Module 5: Case Studies & Visualization"""
-        analysis = [
-            "📚 **Case Analysis**: Real-world ethical dilemma studies",
-            "🎨 **Visual Ethics**: Ethical representation of threat data",
-            "📍 **Geolocation Ethics**: Privacy in location-based threat mapping",
-            "🤖 **AI Ethics**: Ethical AI implementation in cybersecurity",
-            "📈 **Dashboard Ethics**: Responsible data visualization practices"
-        ]
-        
-        # Add visualization insights
         vuln_count = len(data[data['category'].str.contains('Vulnerability')])
-        analysis.append(f"📊 **Case Material**: {vuln_count} real-world vulnerability cases for analysis")
-        
-        return analysis
-    
+
+        return [
+            f"Case Studies: {vuln_count} real-world vulnerability cases",
+            "Location Privacy: Geographical threat distribution",
+            "Fake Content: Phishing and malware analysis",
+            "Visualization: Highcharts-like interactive displays"
+        ]
+
     def _check_course_outcomes(self):
         """Check all course outcomes"""
         return [
-            {"outcome": "CO1: Identify ethical issues in cybersecurity", "status": "✅ Achieved", "score": 95},
-            {"outcome": "CO2: Apply ethical concepts to threat analysis", "status": "✅ Achieved", "score": 92},
-            {"outcome": "CO3: Analyze dilemmas with stakeholder perspective", "status": "✅ Achieved", "score": 88},
-            {"outcome": "CO4: Implement real-world case study analysis", "status": "✅ Achieved", "score": 90}
+            "✅ CO1: Identify ethical issues in cybersecurity threats",
+            "✅ CO2: Apply ethical concepts to threat analysis",
+            "✅ CO3: Analyze cybersecurity dilemmas with stakeholder perspective",
+            "✅ CO4: Real-world case study implementation and analysis"
         ]
-    
-    def _generate_recommendations(self, data):
-        """Generate data-driven recommendations"""
-        recommendations = []
-        
+
+    def _suggest_actions(self, data):
+        """Suggest professional actions"""
+        actions = [
+            "Immediate patching for critical vulnerabilities",
+            "User awareness training for phishing threats",
+            "Regular security audits and penetration testing",
+            "Incident response plan activation",
+            "Compliance with data protection regulations",
+            "Professional ethics training for security teams"
+        ]
+
         if 'severity' in data.columns:
             critical = len(data[data['severity'] == 'Critical'])
             if critical > 0:
-                recommendations.append({
-                    "priority": "Critical",
-                    "action": f"Immediate patching for {critical} critical vulnerabilities",
-                    "timeline": "Within 24 hours",
-                    "responsible": "Security Team"
-                })
-        
-        if 'category' in data.columns:
-            phishing = len(data[data['category'] == 'Phishing URL'])
-            if phishing > 0:
-                recommendations.append({
-                    "priority": "High",
-                    "action": f"User awareness training for {phishing} phishing threats",
-                    "timeline": "Within 7 days",
-                    "responsible": "Training Department"
-                })
-        
-        # Standard recommendations
-        recommendations.extend([
-            {
-                "priority": "High",
-                "action": "Implement multi-factor authentication across all systems",
-                "timeline": "30 days",
-                "responsible": "IT Infrastructure"
-            },
-            {
-                "priority": "Medium",
-                "action": "Conduct penetration testing and security audit",
-                "timeline": "60 days",
-                "responsible": "Security Operations"
-            },
-            {
-                "priority": "Medium",
-                "action": "Update incident response plan based on current threats",
-                "timeline": "45 days",
-                "responsible": "CISO Office"
-            },
-            {
-                "priority": "Low",
-                "action": "Enhance logging and monitoring capabilities",
-                "timeline": "90 days",
-                "responsible": "SOC Team"
-            }
-        ])
-        
-        return recommendations
-    
-    def _analyze_stakeholder_impact(self, data):
-        """Analyze impact on different stakeholders"""
-        stakeholders = {
-            "Customers/Users": {
-                "impact": "High",
-                "concerns": ["Data Privacy", "Service Availability", "Trust"],
-                "mitigation": ["Transparent Communication", "Data Protection", "Quick Response"]
-            },
-            "Employees": {
-                "impact": "Medium",
-                "concerns": ["Job Security", "Workload", "Training Needs"],
-                "mitigation": ["Clear Protocols", "Adequate Resources", "Continuous Training"]
-            },
-            "Management": {
-                "impact": "High",
-                "concerns": ["Reputation", "Financial Loss", "Regulatory Compliance"],
-                "mitigation": ["Risk Management", "Insurance", "Compliance Programs"]
-            },
-            "Regulators": {
-                "impact": "Medium",
-                "concerns": ["Compliance", "Reporting", "Public Safety"],
-                "mitigation": ["Timely Reporting", "Documentation", "Cooperation"]
-            },
-            "Society": {
-                "impact": "Medium",
-                "concerns": ["Digital Safety", "Economic Stability", "National Security"],
-                "mitigation": ["Public Awareness", "Industry Collaboration", "Research Investment"]
-            }
-        }
-        
-        return stakeholders
+                actions.insert(0, f"🔴 URGENT: Address {critical} critical threats immediately")
 
-# ========== PREMIUM STREAMLIT DASHBOARD ==========
+        return actions
 
-def create_premium_dashboard():
-    """Create the premium Streamlit dashboard"""
-    
+# ========== STREAMLIT DASHBOARD ==========
+
+# ========== STREAMLIT DASHBOARD ==========
+
+def create_dashboard():
+    """Create the main Streamlit dashboard"""
+
     # Page configuration
     st.set_page_config(
-        page_title="🔐 CyberGuard Pro - Advanced Threat Intelligence",
+        page_title="🔐 Cybersecurity Threat Intelligence",
         page_icon="🛡️",
         layout="wide",
         initial_sidebar_state="expanded"
     )
-    
-    # Custom CSS for premium look
+
+    # Custom CSS for professional look
     st.markdown("""
     <style>
-    /* Global Styles */
-    .stApp {
-        background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-    }
-    
-    /* Header Styles */
     .main-header {
-        font-size: 3.2rem;
-        background: linear-gradient(90deg, #FF6B6B, #4ECDC4, #45B7D1);
+        font-size: 2.8rem;
+        background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         text-align: center;
-        font-weight: 900;
-        margin-bottom: 0.5rem;
-        text-shadow: 0 2px 10px rgba(0,0,0,0.3);
-        letter-spacing: 1px;
+        font-weight: 800;
+        margin-bottom: 1rem;
     }
-    
     .sub-header {
-        font-size: 2rem;
+        font-size: 1.8rem;
         color: #4ECDC4;
         border-left: 5px solid #FF6B6B;
         padding-left: 1rem;
         margin: 1.5rem 0 1rem 0;
-        font-weight: 600;
-        text-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
-    
-    .section-header {
-        font-size: 1.5rem;
-        color: #45B7D1;
-        border-bottom: 2px solid #FF6B6B;
-        padding-bottom: 0.5rem;
-        margin: 1.5rem 0 1rem 0;
-        font-weight: 600;
-    }
-    
-    /* Card Styles */
     .metric-card {
-        background: linear-gradient(135deg, rgba(255,107,107,0.15) 0%, rgba(78,205,196,0.15) 100%);
-        border-radius: 20px;
-        padding: 1.8rem;
-        color: white;
-        border: 1px solid rgba(255,255,255,0.1);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 15px 35px rgba(0,0,0,0.3);
-        transition: transform 0.3s ease;
-        height: 100%;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-    }
-    
-    .metric-card h3 {
-        font-size: 1.1rem;
-        margin-bottom: 0.8rem;
-        color: #4ECDC4;
-        font-weight: 600;
-    }
-    
-    .metric-card h2 {
-        font-size: 2.5rem;
-        margin: 0;
-        font-weight: 800;
-        background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    
-    .alert-card {
-        background: linear-gradient(135deg, rgba(240,147,251,0.15) 0%, rgba(245,87,108,0.15) 100%);
-        border-radius: 20px;
-        padding: 1.8rem;
-        color: white;
-        border: 1px solid rgba(255,107,107,0.3);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 15px 35px rgba(245,87,108,0.2);
-    }
-    
-    .info-card {
-        background: linear-gradient(135deg, rgba(79,172,254,0.15) 0%, rgba(0,242,254,0.15) 100%);
-        border-radius: 20px;
-        padding: 1.8rem;
-        color: white;
-        border: 1px solid rgba(79,172,254,0.3);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 15px 35px rgba(0,242,254,0.2);
-    }
-    
-    .module-card {
-        background: rgba(255,255,255,0.05);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 15px;
         padding: 1.5rem;
-        border-left: 4px solid #4ECDC4;
-        margin-bottom: 1rem;
-        transition: all 0.3s ease;
-    }
-    
-    .module-card:hover {
-        background: rgba(255,255,255,0.08);
-        transform: translateX(5px);
-    }
-    
-    /* Data Table Styles */
-    .dataframe {
-        border-radius: 10px;
-        overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.1);
-    }
-    
-    /* Button Styles */
-    .stButton > button {
-        background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
         color: white;
-        border: none;
-        padding: 0.75rem 2rem;
-        border-radius: 50px;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 5px 15px rgba(255,107,107,0.3);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        margin: 0.5rem;
     }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(255,107,107,0.4);
+    .alert-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        border-radius: 15px;
+        padding: 1.5rem;
+        color: white;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     }
-    
-    /* Progress Bar */
-    .stProgress > div > div > div {
-        background: linear-gradient(90deg, #FF6B6B, #4ECDC4);
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        background: rgba(16, 20, 40, 0.95);
-        backdrop-filter: blur(10px);
-    }
-    
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: rgba(255,255,255,0.05);
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: linear-gradient(180deg, #FF6B6B, #4ECDC4);
-        border-radius: 4px;
-    }
-    
-    /* Tab Styles */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        background-color: transparent;
-        border-radius: 4px 4px 0px 0px;
-        padding: 0.5rem 1rem;
-        font-weight: 600;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        background-color: rgba(255,107,107,0.2);
-        border-bottom: 3px solid #FF6B6B;
+    .info-card {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        border-radius: 15px;
+        padding: 1.5rem;
+        color: white;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
     }
     </style>
     """, unsafe_allow_html=True)
-    
+
     # Dashboard Header
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<h1 class="main-header">🛡️ CyberGuard Pro</h1>', unsafe_allow_html=True)
-        st.markdown('<p style="text-align: center; color: #a0a0a0; font-size: 1.2rem; margin-bottom: 2rem;">Advanced Threat Intelligence & Ethical Analysis Dashboard</p>', unsafe_allow_html=True)
-    
-    # Initialize session state
+    st.markdown('<h1 class="main-header">🛡️ Cybersecurity Threat Intelligence Dashboard</h1>', unsafe_allow_html=True)
+
+    # Initialize components
     if 'cyber_data' not in st.session_state:
         st.session_state.cyber_data = pd.DataFrame()
-    if 'last_update' not in st.session_state:
-        st.session_state.last_update = None
-    if 'refresh_interval' not in st.session_state:
-        st.session_state.refresh_interval = 60
     
+    # Initialize fetcher for sample data
+    fetcher = CybersecurityDataFetcher()
+
     # Sidebar
     with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h2 style="color: #4ECDC4; margin-bottom: 0.5rem;">⚙️ Control Panel</h2>
-            <div style="height: 2px; background: linear-gradient(90deg, #FF6B6B, #4ECDC4); margin: 0 auto; width: 50%;"></div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Data Collection Section
-        st.markdown('<div class="section-header">🔄 Data Collection</div>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🚀 Fetch Live Data", type="primary", use_container_width=True):
-                with st.spinner("🔄 Collecting real-time threat intelligence..."):
-                    async def collect_data():
-                        fetcher = EnhancedCybersecurityDataFetcher()
-                        await fetcher.create_session()
-                        
-                        # Fetch all data concurrently
-                        tasks = [
-                            fetcher.get_cisa_vulnerabilities(),
-                            fetcher.get_nvd_vulnerabilities(),
-                            fetcher.get_malware_samples(),
-                            fetcher.get_phishing_urls(),
-                            fetcher.get_cyber_news()
-                        ]
-                        
-                        results = await asyncio.gather(*tasks, return_exceptions=True)
-                        await fetcher.close_session()
-                        
-                        # Filter out exceptions
-                        valid_results = [r for r in results if not isinstance(r, Exception)]
-                        
-                        if valid_results:
-                            all_data = pd.concat(valid_results, ignore_index=True)
-                            st.session_state.cyber_data = all_data
-                            st.session_state.last_update = datetime.now()
-                            return all_data
-                        else:
-                            st.error("Failed to fetch data from all sources")
-                            return pd.DataFrame()
-                    
-                    try:
-                        data = asyncio.get_event_loop().run_until_complete(collect_data())
-                        if not data.empty:
-                            st.success(f"✅ Collected {len(data)} threats from {data['source'].nunique()} sources!")
-                        else:
-                            st.warning("⚠️ Using sample data due to API limitations")
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-                        st.session_state.cyber_data = EnhancedCybersecurityDataFetcher()._get_enhanced_cisa_data()
-        
-        with col2:
-            if st.button("🔄 Refresh Data", use_container_width=True):
-                if not st.session_state.cyber_data.empty:
-                    st.session_state.last_update = datetime.now()
-                    st.rerun()
-        
-        # Display Options
-        st.markdown('<div class="section-header">📊 Display Options</div>', unsafe_allow_html=True)
-        
-        auto_refresh = st.checkbox("Auto-refresh dashboard", False)
-        if auto_refresh:
-            refresh_interval = st.slider("Refresh interval (seconds)", 30, 300, 60)
-            st.session_state.refresh_interval = refresh_interval
-        
-        show_raw = st.checkbox("Show raw data tables", False)
-        show_advanced = st.checkbox("Show advanced analytics", True)
-        
-        # Data Range
-        days_range = st.slider("Data history (days)", 1, 90, 30)
-        
-        # Course Information
-        st.markdown('<div class="section-header">🎓 M.Tech Cybersecurity</div>', unsafe_allow_html=True)
-        
-        st.info("""
-        **Mini Project Submission**  
-        Threat Intelligence Dashboard  
-        Modules 1-5 Coverage  
-        
-        **Student:** [Your Name]  
-        **Roll No:** [Your Roll Number]  
-        **Guide:** [Guide Name]
-        """)
-        
+        st.title("⚙️ Dashboard Controls")
         st.markdown("---")
-        
-        # Quick Stats
+
+        st.subheader("🔄 Data Collection")
+        if st.button("🚀 Fetch Live Threat Data", type="primary", use_container_width=True):
+            with st.spinner("Collecting real-time threat intelligence..."):
+                # Run async data collection
+                async def collect_data():
+                    fetcher = CybersecurityDataFetcher()
+                    await fetcher.create_session()
+
+                    # Fetch all data concurrently
+                    tasks = [
+                        fetcher.get_cisa_vulnerabilities(),
+                        fetcher.get_nvd_vulnerabilities(),
+                        fetcher.get_malware_samples(),
+                        fetcher.get_phishing_urls(),
+                        fetcher.get_cyber_news()
+                    ]
+
+                    results = await asyncio.gather(*tasks)
+                    await fetcher.close_session()
+
+                    # Combine all data
+                    all_data = pd.concat(results, ignore_index=True)
+                    st.session_state.cyber_data = all_data
+                    st.session_state.last_update = datetime.now()
+                    return all_data
+
+                # Run async function
+                data = asyncio.get_event_loop().run_until_complete(collect_data())
+                st.success(f"✅ Collected {len(data)} threats from {data['source'].nunique()} sources!")
+
+        st.markdown("---")
+
+        st.subheader("📊 Display Options")
+        auto_refresh = st.checkbox("Auto-refresh every 60 seconds", False)
+        show_raw_data = st.checkbox("Show raw data tables", False)
+
+        st.markdown("---")
+
+        st.subheader("🎓 Course Information")
+        st.write("**M.Tech Cybersecurity**")
+        st.write("Mini Project: Threat Intelligence")
+        st.write("Modules 1-5 Coverage")
+
+        st.markdown("---")
+
+        # Quick stats
         if not st.session_state.cyber_data.empty:
             data = st.session_state.cyber_data
-            st.markdown('<div class="section-header">📈 Quick Stats</div>', unsafe_allow_html=True)
-            
-            total_threats = len(data)
-            critical_count = len(data[data['severity'] == 'Critical']) if 'severity' in data.columns else 0
-            sources_count = data['source'].nunique()
-            categories_count = data['category'].nunique()
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Threats", f"{total_threats:,}")
-            with col2:
-                st.metric("Critical", critical_count, delta_color="inverse")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Sources", sources_count)
-            with col2:
-                st.metric("Categories", categories_count)
-    
+            st.subheader("📈 Quick Stats")
+            st.metric("Total Threats", len(data))
+            if 'severity' in data.columns:
+                critical = len(data[data['severity'] == 'Critical'])
+                st.metric("Critical Threats", critical, delta_color="inverse")
+            st.metric("Data Sources", data['source'].nunique())
+
     # Main Content Area
     if st.session_state.cyber_data.empty:
-        # Welcome Screen
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown("""
-            <div style="text-align: center; padding: 3rem; background: rgba(255,255,255,0.05); 
-                     border-radius: 20px; border: 2px dashed #4ECDC4; margin: 2rem 0;">
-                <h2 style="color: #4ECDC4; margin-bottom: 1rem;">👋 Welcome to CyberGuard Pro</h2>
-                <p style="color: #a0a0a0; margin-bottom: 2rem;">
-                    An advanced threat intelligence dashboard for M.Tech Cybersecurity Mini Project
-                </p>
-                <div style="color: #FF6B6B; font-size: 1.5rem; margin-bottom: 1.5rem;">🚀</div>
-                <p style="color: white;">
-                    Click <b>'Fetch Live Data'</b> in the sidebar to start real-time threat analysis
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Sample Visualizations
+        st.info("👈 Click 'Fetch Live Threat Data' in the sidebar to start!")
+
+        # Show sample visualization
         st.markdown('<h2 class="sub-header">📊 Sample Visualizations</h2>', unsafe_allow_html=True)
-        
-        viz = PremiumCybersecurityVisualizer()
-        fetcher = EnhancedCybersecurityDataFetcher()
-        
+
         col1, col2 = st.columns(2)
         with col1:
-            fig = viz.create_severity_donut(fetcher._get_enhanced_nvd_data())
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        
+            viz = CybersecurityVisualizer()
+            # FIX: Use fetcher to get sample data, not viz
+            fig = viz.create_severity_chart(fetcher._get_sample_nvd_data())
+            st.plotly_chart(fig, use_container_width=True)
+
         with col2:
-            fig = viz.create_threat_timeline(fetcher._get_enhanced_cisa_data())
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        
+            # FIX: Use fetcher to get sample data, not viz
+            fig = viz.create_category_chart(fetcher._get_sample_cisa_data())
+            st.plotly_chart(fig, use_container_width=True)
+
         return
-    
+
     data = st.session_state.cyber_data
-    
-    # ========== REAL-TIME THREAT METRICS ==========
+
+    # ========== KEY METRICS ==========
     st.markdown('<h2 class="sub-header">📊 Real-time Threat Metrics</h2>', unsafe_allow_html=True)
-    
-    # Calculate metrics
-    total_threats = len(data)
-    critical_count = len(data[data['severity'] == 'Critical']) if 'severity' in data.columns else 0
-    high_count = len(data[data['severity'] == 'High']) if 'severity' in data.columns else 0
-    sources_count = data['source'].nunique()
-    
-    # Calculate overall risk score
-    if 'risk_score' in data.columns:
-        overall_risk = int(data['risk_score'].mean())
-    else:
-        overall_risk = 65
-    
+
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         st.markdown(f"""
         <div class="metric-card">
             <h3>🚨 Total Threats</h3>
-            <h2>{total_threats:,}</h2>
-            <p style="color: #a0a0a0; font-size: 0.9rem;">Live threats detected</p>
+            <h2>{len(data)}</h2>
+            <p>Live threats detected</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col2:
+        critical_count = len(data[data['severity'] == 'Critical']) if 'severity' in data.columns else 0
         st.markdown(f"""
         <div class="alert-card">
             <h3>⚠️ Critical Threats</h3>
             <h2>{critical_count}</h2>
-            <p style="color: #a0a0a0; font-size: 0.9rem;">Require immediate action</p>
+            <p>Require immediate action</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col3:
+        sources = data['source'].nunique()
         st.markdown(f"""
         <div class="info-card">
             <h3>📡 Data Sources</h3>
-            <h2>{sources_count}</h2>
-            <p style="color: #a0a0a0; font-size: 0.9rem;">Active intelligence feeds</p>
+            <h2>{sources}</h2>
+            <p>Active intelligence feeds</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col4:
+        categories = data['category'].nunique()
         st.markdown(f"""
         <div class="metric-card">
-            <h3>🎯 High Severity</h3>
-            <h2>{high_count}</h2>
-            <p style="color: #a0a0a0; font-size: 0.9rem;">High priority threats</p>
+            <h3>🎯 Threat Categories</h3>
+            <h2>{categories}</h2>
+            <p>Different threat types</p>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Last update and refresh info
-    if st.session_state.last_update:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.caption(f"🕒 Last updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
-        with col2:
-            if auto_refresh:
-                st.caption(f"🔄 Auto-refresh: {st.session_state.refresh_interval}s")
-    
-    # ========== PREMIUM VISUALIZATIONS ==========
-    st.markdown('<h2 class="sub-header">📈 Advanced Threat Analytics</h2>', unsafe_allow_html=True)
-    
-    viz = PremiumCybersecurityVisualizer()
-    
-    # First row: Timeline and Gauge
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        fig = viz.create_threat_timeline(data)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': True})
-    
-    with col2:
-        fig = viz.create_risk_score_gauge(overall_risk)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
-    # Second row: Severity and Sources
+
+    # Last update time
+    if 'last_update' in st.session_state:
+        st.caption(f"🕒 Last updated: {st.session_state.last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # ========== VISUALIZATIONS ==========
+    st.markdown('<h2 class="sub-header">📈 Threat Intelligence Visualizations</h2>', unsafe_allow_html=True)
+
+    viz = CybersecurityVisualizer()
+
+    # First row
     col1, col2 = st.columns(2)
-    
+
     with col1:
-        fig = viz.create_severity_donut(data)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
+        fig = viz.create_severity_chart(data)
+        st.plotly_chart(fig, use_container_width=True)
+
     with col2:
-        fig = viz.create_source_contribution(data)
-        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
-    # Third row: Advanced charts
-    if show_advanced:
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = viz.create_category_sunburst(data)
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-        
-        with col2:
-            fig = viz.create_cvss_radar(data)
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-    
-    # ========== THREAT INTELLIGENCE DETAILS ==========
-    st.markdown('<h2 class="sub-header">🔍 Detailed Threat Intelligence</h2>', unsafe_allow_html=True)
-    
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🚨 Vulnerabilities", 
-        "🦠 Malware", 
-        "🎣 Phishing", 
-        "📰 Security News",
-        "📊 All Data"
-    ])
-    
+        fig = viz.create_category_chart(data)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Second row
+    col1, col2 = st.columns(2)
+
+    with col1:
+        fig = viz.create_cvss_distribution(data)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col2:
+        fig = viz.create_source_activity(data)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ========== THREAT DETAILS ==========
+    st.markdown('<h2 class="sub-header">🔍 Latest Threat Intelligence</h2>', unsafe_allow_html=True)
+
+    tab1, tab2, tab3, tab4 = st.tabs(["🚨 Vulnerabilities", "🦠 Malware", "🎣 Phishing", "📰 News"])
+
     with tab1:
-        vuln_data = data[data['category'].str.contains('Vulnerability', case=False)].head(20)
+        vuln_data = data[data['category'].str.contains('Vulnerability')].head(15)
         if not vuln_data.empty:
-            # Display with enhanced formatting
-            for _, row in vuln_data.iterrows():
-                with st.container():
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"**{row.get('cve_id', 'N/A')}** - {row.get('description', '')[:150]}...")
-                        if 'vendor' in row:
-                            st.caption(f"Vendor: {row.get('vendor')} | Product: {row.get('product', 'N/A')}")
-                    with col2:
-                        severity = row.get('severity', 'Unknown')
-                        color = viz.colors.get(severity, '#808080')
-                        st.markdown(f"""
-                        <div style="background-color: {color}20; padding: 0.5rem; 
-                                 border-radius: 10px; text-align: center; border: 1px solid {color}">
-                            <span style="color: {color}; font-weight: bold;">{severity}</span>
-                            {f"<br><small>Score: {row.get('cvss_score', 'N/A')}</small>" if 'cvss_score' in row else ''}
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.divider()
+            st.dataframe(vuln_data[['cve_id', 'description', 'severity', 'source']], use_container_width=True)
         else:
             st.info("No vulnerability data available")
-    
+
     with tab2:
-        malware_data = data[data['category'].str.contains('Malware', case=False)].head(15)
+        malware_data = data[data['category'] == 'Malware Sample'].head(15)
         if not malware_data.empty:
-            st.dataframe(
-                malware_data[[
-                    'sha256_hash', 'malware_type', 'signature', 'severity', 'threat_level'
-                ] if 'threat_level' in malware_data.columns else [
-                    'sha256_hash', 'malware_type', 'signature', 'severity'
-                ]],
-                use_container_width=True,
-                column_config={
-                    "sha256_hash": "Hash",
-                    "malware_type": "Type",
-                    "signature": "Signature",
-                    "severity": "Severity",
-                    "threat_level": st.column_config.NumberColumn("Threat Level", format="%d")
-                }
-            )
+            st.dataframe(malware_data[['sha256_hash', 'malware_type', 'signature', 'severity']], use_container_width=True)
         else:
             st.info("No malware data available")
-    
+
     with tab3:
-        phishing_data = data[data['category'].str.contains('Phishing', case=False)].head(15)
+        phishing_data = data[data['category'] == 'Phishing URL'].head(15)
         if not phishing_data.empty:
-            for _, row in phishing_data.iterrows():
-                with st.container():
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"**{row.get('domain', 'Unknown Domain')}**")
-                        st.caption(f"URL: {row.get('url', 'N/A')}")
-                        st.caption(f"Detected: {row.get('detection_date', 'N/A')}")
-                    with col2:
-                        st.markdown("""
-                        <div style="background-color: rgba(255,23,68,0.2); padding: 0.5rem; 
-                                 border-radius: 10px; text-align: center; border: 1px solid #FF1744">
-                            <span style="color: #FF1744; font-weight: bold;">Critical</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    st.divider()
+            st.dataframe(phishing_data[['domain', 'url', 'severity']], use_container_width=True)
         else:
             st.info("No phishing data available")
-    
+
     with tab4:
-        news_data = data[data['category'].str.contains('News', case=False)].head(10)
+        news_data = data[data['category'] == 'Security News'].head(10)
         if not news_data.empty:
             for _, row in news_data.iterrows():
-                with st.expander(f"📰 {row.get('title', 'No title')}"):
-                    st.write(row.get('description', 'No description'))
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption(f"Source: {row.get('source', 'Unknown')}")
-                    with col2:
-                        st.caption(f"Published: {row.get('published_at', 'N/A')}")
+                st.write(f"📰 **{row.get('title', 'No title')}**")
+                st.write(row.get('description', ''))
+                st.write("---")
         else:
             st.info("No security news available")
-    
-    with tab5:
-        if show_raw:
-            st.dataframe(data, use_container_width=True)
-    
-    # ========== ETHICAL ANALYSIS & COURSE ALIGNMENT ==========
-    st.markdown('<h2 class="sub-header">⚖️ Ethical Analysis & M.Tech Course Alignment</h2>', unsafe_allow_html=True)
-    
-    analyzer = AdvancedEthicalAnalyzer()
-    analysis = analyzer.analyze_threats(data)
-    
-    # Display module analysis in cards
-    tabs = st.tabs([f"Module {i+1}" for i in range(5)])
-    
-    for i, tab in enumerate(tabs):
-        with tab:
-            module_id = f'module{i+1}'
-            module_data = analysis['module_analysis'][module_id]
-            
-            # Module header with score
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"### 📚 {module_data['name']}")
-            with col2:
-                score = module_data['score']
-                st.progress(score/100, text=f"Score: {score}/100")
-            
-            # Module analysis points
-            for point in module_data['analysis']:
-                st.markdown(f"• {point}")
-            
-            # Module-specific metrics
-            if module_id == 'module1':
-                st.metric("Professional Ethics Score", f"{analysis['ethical_scores']['professional_responsibility']}/100")
-            elif module_id == 'module3':
-                st.metric("Privacy Protection Score", f"{analysis['ethical_scores']['privacy_protection']}/100")
-    
+
+    # ========== ETHICAL ANALYSIS ==========
+    st.markdown('<h2 class="sub-header">⚖️ Ethical Analysis & Course Alignment</h2>', unsafe_allow_html=True)
+
+    analyzer = EthicalAnalyzer()
+    ethical_analysis = analyzer.analyze_threats(data)
+
+    # Display in expandable sections
+    with st.expander("📚 Module 1: Ethics and the Professions", expanded=True):
+        for item in ethical_analysis['module1_professional_ethics']:
+            st.write(f"• {item}")
+
+    with st.expander("🌐 Module 2: Cyberspace Ethics"):
+        for item in ethical_analysis['module2_cyberspace_ethics']:
+            st.write(f"• {item}")
+
+    with st.expander("📱 Module 3: OSN Privacy & Security"):
+        for item in ethical_analysis['module3_osn_privacy']:
+            st.write(f"• {item}")
+
+    with st.expander("🔍 Module 4: Fraud Detection"):
+        for item in ethical_analysis['module4_fraud_detection']:
+            st.write(f"• {item}")
+
+    with st.expander("📊 Module 5: Case Studies & Visualization"):
+        for item in ethical_analysis['module5_case_studies']:
+            st.write(f"• {item}")
+
     # Course Outcomes
     st.markdown('<h3 class="sub-header">🎯 Course Outcomes Achievement</h3>', unsafe_allow_html=True)
-    
-    outcomes = analysis['course_outcomes']
-    for outcome in outcomes:
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            st.markdown(f"**{outcome['outcome']}**")
-        with col2:
-            st.markdown(f"{outcome['status']}")
-        with col3:
-            st.progress(outcome['score']/100, text=f"{outcome['score']}%")
-    
-    # Recommendations
-    st.markdown('<h3 class="sub-header">✅ Professional Recommendations</h3>', unsafe_allow_html=True)
-    
-    recommendations = analysis['recommendations']
-    for rec in recommendations:
-        with st.container():
-            col1, col2, col3, col4 = st.columns([1, 3, 1, 1])
-            with col1:
-                priority_color = {
-                    'Critical': '#FF1744',
-                    'High': '#FF9800',
-                    'Medium': '#4CAF50',
-                    'Low': '#2196F3'
-                }.get(rec['priority'], '#808080')
-                
-                st.markdown(f"""
-                <div style="background-color: {priority_color}20; padding: 0.5rem; 
-                         border-radius: 10px; text-align: center; border: 1px solid {priority_color}">
-                    <span style="color: {priority_color}; font-weight: bold;">{rec['priority']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.markdown(f"**{rec['action']}**")
-            
-            with col3:
-                st.caption(f"📅 {rec['timeline']}")
-            
-            with col4:
-                st.caption(f"👤 {rec['responsible']}")
-            
-            st.divider()
-    
+
+    for outcome in ethical_analysis['course_outcomes']:
+        st.success(outcome)
+
+    # Recommended Actions
+    st.markdown('<h3 class="sub-header">✅ Recommended Professional Actions</h3>', unsafe_allow_html=True)
+
+    for action in ethical_analysis['recommended_actions']:
+        st.write(f"• {action}")
+
     # ========== ETHICAL DECISION SIMULATION ==========
     st.markdown('<h2 class="sub-header">🤔 Ethical Decision Simulation</h2>', unsafe_allow_html=True)
-    
-    scenario_col, decision_col = st.columns([2, 1])
-    
-    with scenario_col:
-        scenario = st.selectbox(
-            "Select an ethical cybersecurity scenario:",
-            [
-                "Discovering a critical zero-day vulnerability in widely used software",
-                "Responding to a ransomware attack on healthcare systems",
-                "Handling user data privacy vs. security monitoring needs",
-                "Reporting security vulnerabilities to vendors responsibly",
-                "Balancing disclosure timelines with patch availability",
-                "Managing insider threat detection vs. employee privacy",
-                "Dealing with nation-state cyber attacks and attribution",
-                "Implementing AI in cybersecurity: Bias and fairness concerns"
-            ]
-        )
-        
-        st.markdown("**Ethical Frameworks to Consider:**")
-        frameworks = st.multiselect(
-            "Select applicable frameworks:",
-            [
-                "ACM Code of Ethics and Professional Conduct",
-                "IEEE Ethical Guidelines for AI/ML Systems",
-                "GDPR Data Protection Principles",
-                "NIST Cybersecurity Framework",
-                "ISO/IEC 27001 Security Standards",
-                "Utilitarian Approach (Greatest Good)",
-                "Deontological Ethics (Rule-based)",
-                "Virtue Ethics (Character-based)",
-                "Rights-based Ethics",
-                "Justice and Fairness Principles"
-            ],
-            default=["ACM Code of Ethics and Professional Conduct", "GDPR Data Protection Principles"]
-        )
-    
-    with decision_col:
-        st.markdown("**Your Decision:**")
+
+    scenario = st.selectbox(
+        "Select a cybersecurity ethical scenario:",
+        [
+            "Discovering a critical zero-day vulnerability in widely used software",
+            "Responding to a ransomware attack on healthcare systems",
+            "Handling user data privacy vs. security monitoring needs",
+            "Reporting security vulnerabilities to vendors responsibly",
+            "Balancing disclosure timelines with patch availability"
+        ]
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.write("**Ethical Frameworks to Consider:**")
+        st.write("• ACM Code of Ethics")
+        st.write("• IEEE Ethical Guidelines")
+        st.write("• GDPR Data Protection")
+        st.write("• Professional Responsibility")
+
+    with col2:
         decision = st.radio(
-            "Choose your professional response:",
+            "Your professional decision:",
             [
                 "Immediate responsible disclosure to affected parties",
                 "Coordinated disclosure with vendor timeline",
                 "Internal investigation and containment first",
-                "Regulatory authority reporting as required",
-                "Public awareness with mitigation guidance",
-                "Ethical hacking to demonstrate vulnerability",
-                "Multi-stakeholder consultation approach",
-                "Legal counsel before any action"
+                "Regulatory authority reporting",
+                "Public awareness with mitigation guidance"
             ]
         )
-        
-        if st.button("Submit Ethical Decision", type="primary", use_container_width=True):
-            st.balloons()
-            st.success("✅ Decision recorded and analyzed!")
-            
-            with st.expander("📋 Ethical Analysis Report"):
-                st.markdown("**Professional Ethics Applied:**")
-                
-                # Generate analysis based on selection
-                analysis_points = [
-                    "✓ Stakeholder impact assessment completed",
-                    "✓ Legal and regulatory compliance verified",
-                    "✓ Professional codes of conduct followed",
-                    "✓ Public interest consideration documented",
-                    "✓ Risk-benefit analysis performed",
-                    "✓ Alternative actions evaluated",
-                    "✓ Long-term consequences considered",
-                    "✓ Transparency maintained throughout process"
-                ]
-                
-                for point in analysis_points:
-                    st.markdown(point)
-                
-                st.markdown("\n**M.Tech Course Integration:**")
-                course_points = [
-                    "- Direct application of Module 1 professional ethics principles",
-                    "- Module 2 cyberspace responsibility demonstrated",
-                    "- Module 3 privacy protection and OSN ethics applied",
-                    "- Module 4 fraud detection methodologies implemented",
-                    "- Module 5 case study analysis and visualization achieved",
-                    "- All course outcomes (CO1-CO4) successfully addressed"
-                ]
-                
-                for point in course_points:
-                    st.markdown(point)
-                
-                # Ethical decision score
-                st.markdown("\n**Ethical Decision Score:** 92/100")
-                st.progress(0.92, text="Excellent - Demonstrates strong ethical reasoning")
-    
-    # ========== FOOTER ==========
-    st.markdown("---")
-    
-    footer_col1, footer_col2, footer_col3 = st.columns(3)
-    
-    with footer_col1:
-        st.markdown("""
-        **M.Tech Cybersecurity**  
-        Mini Project Submission  
-        Academic Year 2024-2025
-        """)
-    
-    with footer_col2:
-        st.markdown("""
-        **CyberGuard Pro Dashboard**  
-        Version 2.0.0  
-        Powered by Streamlit Cloud
-        """)
-    
-    with footer_col3:
-        st.markdown("""
-        **Course Modules Covered**  
-        Modules 1-5 Complete  
-        CO1-CO4 Achieved
-        """)
-    
-    # Auto-refresh logic
-    if auto_refresh and st.session_state.last_update:
-        time_since_update = (datetime.now() - st.session_state.last_update).seconds
-        if time_since_update >= st.session_state.refresh_interval:
-            st.rerun()
 
-# ========== MAIN EXECUTION ==========
+    if st.button("Submit Ethical Decision", type="primary"):
+        st.balloons()
+        st.success(f"Decision Recorded: {decision}")
+
+        with st.expander("📋 Ethical Analysis Report"):
+            st.write("**Professional Ethics Applied:**")
+            st.write("✓ Stakeholder impact assessment")
+            st.write("✓ Legal and regulatory compliance")
+            st.write("✓ Professional codes of conduct")
+            st.write("✓ Public interest consideration")
+
+            st.write("\n**M.Tech Course Integration:**")
+            st.write("- Direct application of Module 1 professional ethics")
+            st.write("- Module 2 cyberspace responsibility demonstrated")
+            st.write("- Module 3 privacy protection principles applied")
+            st.write("- Module 4 fraud detection methodologies used")
+            st.write("- Module 5 case study analysis implemented")
+
+    # Footer
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.write("**M.Tech Cybersecurity**")
+        st.write("Threat Intelligence Mini Project")
+
+    with col2:
+        st.write("**Real-time Dashboard**")
+        st.write("Deployed via Streamlit Cloud")
+
+    with col3:
+        st.write("**Course Modules 1-5**")
+        st.write("Full syllabus coverage")
+
+# ========== TEST IN COLAB ==========
 if __name__ == "__main__":
-    create_premium_dashboard()
-    
-    # Display deployment instructions
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("### 🚀 Deployment Instructions")
-        
-        with st.expander("Show deployment steps"):
-            st.markdown("""
-            1. **Save this code** as `cybersecurity_dashboard.py`
-            2. **Create requirements.txt** with:
-            ```
-            streamlit>=1.28.0
-            pandas>=2.0.0
-            plotly>=5.17.0
-            numpy>=1.24.0
-            aiohttp>=3.9.0
-            nest-asyncio>=1.5.0
-            ```
-            3. **Create GitHub repository** and upload files
-            4. **Go to [share.streamlit.io](https://share.streamlit.io)**
-            5. **Connect GitHub repo** and deploy
-            6. **Add secrets** (optional) for NewsAPI
-            """)
+    create_dashboard()
+    print("=" * 50)
+    print("\nThis is the complete code for Streamlit deployment.")
+    print("\nTo test in Colab:")
+    print("1. Run this cell to see the code structure")
+    print("2. Copy this entire code")
+    print("3. Create a file 'cybersecurity_dashboard.py' in your GitHub repo")
+    print("4. Add requirements.txt with dependencies")
+    print("5. Deploy on Streamlit Cloud (share.streamlit.io)")
+    print("\nThe dashboard includes:")
+    print("✅ Real-time threat data from free APIs")
+    print("✅ Professional Plotly visualizations")
+    print("✅ Ethical analysis for all 5 course modules")
+    print("✅ Course outcomes CO1-CO4 implementation")
+    print("✅ Streamlit deployment ready")
+
+    # Show a sample of what the dashboard will look like
+    print("\n📊 Sample Data Preview:")
+
+    # Create sample fetcher for demonstration
+    fetcher = CybersecurityDataFetcher()
+
+    # Get sample data
+    cisa_sample = fetcher._get_sample_cisa_data()
+    print(f"CISA Vulnerabilities: {len(cisa_sample)} samples")
+    print(f"NVD Vulnerabilities: {len(fetcher._get_sample_nvd_data())} samples")
+    print(f"Malware Samples: {len(fetcher._get_sample_malware_data())} samples")
+    print(f"Phishing URLs: {len(fetcher._get_sample_phishing_data())} samples")
+
+    print("\n🎯 To deploy on Streamlit Cloud:")
+    print("1. Create GitHub repository")
+    print("2. Add cybersecurity_dashboard.py (this file)")
+    print("3. Add requirements.txt (streamlit, pandas, plotly, aiohttp)")
+    print("4. Go to share.streamlit.io")
+
+    print("5. Connect GitHub repo and deploy!")
